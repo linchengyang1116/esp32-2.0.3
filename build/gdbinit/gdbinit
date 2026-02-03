@@ -1,0 +1,2 @@
+source /Users/lcy/Documents/esp32-2.0.3/build/gdbinit/symbols
+source /Users/lcy/Documents/esp32-2.0.3/build/gdbinit/connect
