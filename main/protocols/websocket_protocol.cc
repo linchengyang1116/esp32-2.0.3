@@ -87,9 +87,12 @@ bool WebsocketProtocol::OpenAudioChannel() {
 
     // 如果从配置中没有读取到 URL，使用默认值
     if (url.empty()) {
-        url = "ws://192.168.120.3:8091/ws/xiaozhi/v1/";  // 在这里设置你的 WebSocket URL
+        url = "ws://120.27.206.0:8091/ws/xiaozhi/v1/";  // 在这里设置你的 WebSocket URL
         ESP_LOGI(TAG, "Using default WebSocket URL");
     }
+
+    ESP_LOGI(TAG, "Final WebSocket URL: %s, token_len: %d, version(from settings): %d",
+             url.c_str(), (int)token.size(), version);
 
     // 如果从配置中没有读取到 token，可以设置默认值（可选）
     // if (token.empty()) {
@@ -117,7 +120,7 @@ bool WebsocketProtocol::OpenAudioChannel() {
         websocket_->SetHeader("Authorization", token.c_str());
     }
     websocket_->SetHeader("Protocol-Version", std::to_string(version_).c_str());
-    websocket_->SetHeader("Device-Id", SystemInfo::GetMacAddress().c_str());
+    websocket_->SetHeader("device-id", SystemInfo::GetMacAddress().c_str());
     websocket_->SetHeader("Client-Id", Board::GetInstance().GetUuid().c_str());
 
     websocket_->OnData([this](const char* data, size_t len, bool binary) {

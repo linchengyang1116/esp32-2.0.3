@@ -120,7 +120,7 @@ dependencies:
       require: private
       version: '>=4.1'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 0.5.3
   espressif/dl_fft:
@@ -527,16 +527,24 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.2.0~1
+  espressif2022/image_player:
+    component_hash: 0e42ed1c9665debd15f2f3e7e56519100e75e446410962226cb5e5402da3fa43
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.1.1
   idf:
     source:
       type: idf
     version: 5.5.2
-  image_player:
-    dependencies: []
-    source:
-      path: /Users/lcy/Documents/jason-project/xiaozhi-esp32-2.0.3/components/image_player
-      type: local
-    version: 1.1.1
   lvgl/lvgl:
     component_hash: b702d642e03e95928046d5c6726558e6444e112420c77efa5fdb6650b0a13c5d
     dependencies: []
@@ -613,7 +621,6 @@ direct_dependencies:
 - espressif/adc_battery_estimation
 - espressif/adc_mic
 - espressif/button
-- espressif/cmake_utilities
 - espressif/esp-sr
 - espressif/esp32-camera
 - espressif/esp_codec_dev
@@ -644,6 +651,6 @@ direct_dependencies:
 - waveshare/esp_lcd_sh8601
 - waveshare/esp_lcd_touch_cst9217
 - wvirgil123/sscma_client
-manifest_hash: d259cc69c1140bec705d6e86db326b9c32e7c6b7b77eebf346937013b464131b
+manifest_hash: ddd92d0e3275e3042a83a620c72d43a2df7c23cfd8bf4e4296c1329ea64b39e1
 target: esp32s3
 version: 2.0.0

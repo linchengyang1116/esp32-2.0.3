@@ -1,0 +1,6 @@
+{
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.currentSetup": "/Users/lcy/esp/esp-idf"
+}
