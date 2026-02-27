@@ -134,166 +134,227 @@ private:
     LcdDisplay* display_;
     XL9555_IN* xl9555_in_;
     bool es8311_detected_ = false;
-    
-    void InitializeI2c() {
-        // Initialize I2C peripheral
-        i2c_master_bus_config_t i2c_bus_cfg = {
-            .i2c_port = (i2c_port_t)0,
-            .sda_io_num = GPIO_NUM_48,
-            .scl_io_num = GPIO_NUM_45,
-            .clk_source = I2C_CLK_SRC_DEFAULT,
-            .glitch_ignore_cnt = 7,
-            .intr_priority = 0,
-            .trans_queue_depth = 0,
-            .flags = {
-                .enable_internal_pullup = 1,
-            },
-        };
-        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
 
-        // Initialize XL9555
-        xl9555_in_ = new XL9555_IN(i2c_bus_, 0x20);
+    // K1/K2 扫描定时器和上一次按下状态
+    TimerHandle_t key_scan_timer_ = nullptr;
+    bool k1_last_pressed_ = false;
+    bool k2_last_pressed_ = false;
 
-        if (xl9555_in_->GetPingState(0x0020) == 1) {
-            es8311_detected_ = true;    /* 音频设备标志位，SPK_CTRL_IO为高电平时，该标志位置1，且判定为ES8311 */
-        } else {
-            es8311_detected_ = false;    /* 音频设备标志位，SPK_CTRL_IO为低电平时，该标志位置0，且判定为NS4168 */
-        }
-
-        xl9555_in_->xl9555_cfg();
-    }
-
-    void InitializeATK_ST7789_80_Display() {
-        esp_lcd_panel_io_handle_t panel_io = nullptr;
-        esp_lcd_panel_handle_t panel = nullptr;
-        /* 配置RD引脚 */
-        gpio_config_t gpio_init_struct;
-        gpio_init_struct.intr_type = GPIO_INTR_DISABLE;
-        gpio_init_struct.mode = GPIO_MODE_INPUT_OUTPUT;
-        gpio_init_struct.pin_bit_mask = 1ull << LCD_NUM_RD;
-        gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;
-        gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;
-        gpio_config(&gpio_init_struct);
-        gpio_set_level(LCD_NUM_RD, 1);
-
-        esp_lcd_i80_bus_handle_t i80_bus = NULL;
-        esp_lcd_i80_bus_config_t bus_config = {
-            .dc_gpio_num = LCD_NUM_DC,
-            .wr_gpio_num = LCD_NUM_WR,
-            .clk_src = LCD_CLK_SRC_DEFAULT,
-            .data_gpio_nums = {
-                GPIO_LCD_D0,
-                GPIO_LCD_D1,
-                GPIO_LCD_D2,
-                GPIO_LCD_D3,
-                GPIO_LCD_D4,
-                GPIO_LCD_D5,
-                GPIO_LCD_D6,
-                GPIO_LCD_D7,
-            },
-            .bus_width = 8,
-            .max_transfer_bytes = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t),
-            .psram_trans_align = 64,
-            .sram_trans_align = 4,
-        };
-        ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&bus_config, &i80_bus));
-
-        esp_lcd_panel_io_i80_config_t io_config = {
-            .cs_gpio_num = LCD_NUM_CS,
-            .pclk_hz = (10 * 1000 * 1000),
-            .trans_queue_depth = 10,
-            .on_color_trans_done = nullptr,
-            .user_ctx = nullptr,
-            .lcd_cmd_bits = 8,
-            .lcd_param_bits = 8,
-            .dc_levels = {
-                .dc_idle_level = 0,
-                .dc_cmd_level = 0,
-                .dc_dummy_level = 0,
-                .dc_data_level = 1,
-            },
-            .flags = {
-                .swap_color_bytes = 0,
-            },
-        };
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_bus, &io_config, &panel_io));
-
-        esp_lcd_panel_dev_config_t panel_config = {
-            .reset_gpio_num = LCD_NUM_RST,
-            .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-            .bits_per_pixel = 16,
-        };
-        ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io, &panel_config, &panel));
-
-        esp_lcd_panel_reset(panel);
-        esp_lcd_panel_init(panel);
-        esp_lcd_panel_invert_color(panel, DISPLAY_BACKLIGHT_OUTPUT_INVERT);
-        esp_lcd_panel_set_gap(panel, 0, 0);
-        uint8_t data0[] = {0x00};
-        uint8_t data1[] = {0x65};
-        esp_lcd_panel_io_tx_param(panel_io, 0x36, data0, 1);
-        esp_lcd_panel_io_tx_param(panel_io, 0x3A, data1, 1);
-        esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
-        esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
-        ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
-
-        display_ = new SpiLcdDisplay(panel_io, panel,
-                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
-    }
-
-    void InitializeButtons() {
-        boot_button_.OnClick([this]() {
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
-                ResetWifiConfiguration();
-            }
-            app.ToggleChatState();
-        });
-    }
+    void InitializeI2c();
+    void InitializeATK_ST7789_80_Display();
+    void InitializeButtons();
+    void ScanKeys();
 
 public:
-    atk_dnesp32s3_box() : boot_button_(BOOT_BUTTON_GPIO) {
-        InitializeI2c();
-        InitializeATK_ST7789_80_Display();
-        xl9555_in_->SetOutputState(5, 1);
-        xl9555_in_->SetOutputState(7, 1);
-        InitializeButtons();
+    atk_dnesp32s3_box();
+    virtual AudioCodec* GetAudioCodec() override;
+    virtual Display* GetDisplay() override;
+};
+
+// ====== 成员函数实现放在类外 ======
+
+void atk_dnesp32s3_box::InitializeI2c() {
+    // Initialize I2C peripheral
+    i2c_master_bus_config_t i2c_bus_cfg = {
+        .i2c_port = (i2c_port_t)0,
+        .sda_io_num = GPIO_NUM_48,
+        .scl_io_num = GPIO_NUM_45,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .intr_priority = 0,
+        .trans_queue_depth = 0,
+        .flags = {
+            .enable_internal_pullup = 1,
+        },
+    };
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
+
+    // Initialize XL9555
+    xl9555_in_ = new XL9555_IN(i2c_bus_, 0x20);
+
+    if (xl9555_in_->GetPingState(0x0020) == 1) {
+        es8311_detected_ = true;    /* 音频设备标志位，SPK_CTRL_IO为高电平时，该标志位置1，且判定为ES8311 */
+    } else {
+        es8311_detected_ = false;   /* 音频设备标志位，SPK_CTRL_IO为低电平时，该标志位置0，且判定为NS4168 */
     }
 
-    virtual AudioCodec* GetAudioCodec() override {
-        /* 根据探测结果初始化编解码器 */
-        if (es8311_detected_) {
-            /* 使用ES8311 驱动 */
-            static Es8311AudioCodec audio_codec(
-                i2c_bus_, 
-                I2C_NUM_0, 
-                AUDIO_INPUT_SAMPLE_RATE,
-                AUDIO_OUTPUT_SAMPLE_RATE,
-                GPIO_NUM_NC, 
-                AUDIO_I2S_GPIO_BCLK, 
-                AUDIO_I2S_GPIO_WS,
-                AUDIO_I2S_GPIO_DOUT,
-                AUDIO_I2S_GPIO_DIN,
-                GPIO_NUM_NC, 
-                AUDIO_CODEC_ES8311_ADDR, 
-                false);
-                return &audio_codec;
-        } else {
-            static ATK_NoAudioCodecDuplex audio_codec(
-                AUDIO_INPUT_SAMPLE_RATE,
-                AUDIO_OUTPUT_SAMPLE_RATE,
-                AUDIO_I2S_GPIO_BCLK,
-                AUDIO_I2S_GPIO_WS,
-                AUDIO_I2S_GPIO_DOUT,
-                AUDIO_I2S_GPIO_DIN);
-                return &audio_codec;
+    xl9555_in_->xl9555_cfg();
+}
+
+void atk_dnesp32s3_box::InitializeATK_ST7789_80_Display() {
+    esp_lcd_panel_io_handle_t panel_io = nullptr;
+    esp_lcd_panel_handle_t panel = nullptr;
+    /* 配置RD引脚 */
+    gpio_config_t gpio_init_struct;
+    gpio_init_struct.intr_type = GPIO_INTR_DISABLE;
+    gpio_init_struct.mode = GPIO_MODE_INPUT_OUTPUT;
+    gpio_init_struct.pin_bit_mask = 1ull << LCD_NUM_RD;
+    gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;
+    gpio_config(&gpio_init_struct);
+    gpio_set_level(LCD_NUM_RD, 1);
+
+    esp_lcd_i80_bus_handle_t i80_bus = NULL;
+    esp_lcd_i80_bus_config_t bus_config = {
+        .dc_gpio_num = LCD_NUM_DC,
+        .wr_gpio_num = LCD_NUM_WR,
+        .clk_src = LCD_CLK_SRC_DEFAULT,
+        .data_gpio_nums = {
+            GPIO_LCD_D0,
+            GPIO_LCD_D1,
+            GPIO_LCD_D2,
+            GPIO_LCD_D3,
+            GPIO_LCD_D4,
+            GPIO_LCD_D5,
+            GPIO_LCD_D6,
+            GPIO_LCD_D7,
+        },
+        .bus_width = 8,
+        .max_transfer_bytes = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t),
+        .psram_trans_align = 64,
+        .sram_trans_align = 4,
+    };
+    ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&bus_config, &i80_bus));
+
+    esp_lcd_panel_io_i80_config_t io_config = {
+        .cs_gpio_num = LCD_NUM_CS,
+        .pclk_hz = (10 * 1000 * 1000),
+        .trans_queue_depth = 10,
+        .on_color_trans_done = nullptr,
+        .user_ctx = nullptr,
+        .lcd_cmd_bits = 8,
+        .lcd_param_bits = 8,
+        .dc_levels = {
+            .dc_idle_level = 0,
+            .dc_cmd_level = 0,
+            .dc_dummy_level = 0,
+            .dc_data_level = 1,
+        },
+        .flags = {
+            .swap_color_bytes = 0,
+        },
+    };
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_bus, &io_config, &panel_io));
+
+    esp_lcd_panel_dev_config_t panel_config = {
+        .reset_gpio_num = LCD_NUM_RST,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .bits_per_pixel = 16,
+    };
+    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io, &panel_config, &panel));
+
+    esp_lcd_panel_reset(panel);
+    esp_lcd_panel_init(panel);
+    esp_lcd_panel_invert_color(panel, DISPLAY_BACKLIGHT_OUTPUT_INVERT);
+    esp_lcd_panel_set_gap(panel, 0, 0);
+    uint8_t data0[] = {0x00};
+    uint8_t data1[] = {0x65};
+    esp_lcd_panel_io_tx_param(panel_io, 0x36, data0, 1);
+    esp_lcd_panel_io_tx_param(panel_io, 0x3A, data1, 1);
+    esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
+    esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
+
+    display_ = new SpiLcdDisplay(panel_io, panel,
+                                DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+}
+
+void atk_dnesp32s3_box::InitializeButtons() {
+    boot_button_.OnClick([this]() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
+            ResetWifiConfiguration();
         }
-        return NULL;
+        app.ToggleChatState();
+    });
+}
+
+void atk_dnesp32s3_box::ScanKeys() {
+    if (xl9555_in_ == nullptr || display_ == nullptr) {
+        return;
     }
-    
-    virtual Display* GetDisplay() override {
-        return display_;
+
+    // 读取 K1 当前电平（GetPingState: 对应位为 1 返回 1，对应位为 0 返回 0）
+    int k1_state = xl9555_in_->GetPingState(XL9555_K1_PIN_MASK);
+    bool k1_pressed = (k1_state == XL9555_K1_ACTIVE_LEVEL);
+
+    // 读取 K2 当前电平
+    int k2_state = xl9555_in_->GetPingState(XL9555_K2_PIN_MASK);
+    bool k2_pressed = (k2_state == XL9555_K2_ACTIVE_LEVEL);
+
+    // K1：从未按下 -> 按下，触发“下一条”聊天记录
+    if (k1_pressed && !k1_last_pressed_) {
+        display_->ShowNextChatMessage();
     }
-};
+
+    // K2：从未按下 -> 按下，触发“上一条”聊天记录
+    if (k2_pressed && !k2_last_pressed_) {
+        display_->ShowPreviousChatMessage();
+    }
+
+    // 更新上次状态
+    k1_last_pressed_ = k1_pressed;
+    k2_last_pressed_ = k2_pressed;
+}
+
+atk_dnesp32s3_box::atk_dnesp32s3_box() : boot_button_(BOOT_BUTTON_GPIO) {
+    InitializeI2c();
+    InitializeATK_ST7789_80_Display();
+    xl9555_in_->SetOutputState(5, 1);
+    xl9555_in_->SetOutputState(7, 1);
+    InitializeButtons();
+
+    // 创建并启动 K1/K2 扫描定时器（50ms 周期）
+    key_scan_timer_ = xTimerCreate(
+        "key_scan",
+        pdMS_TO_TICKS(50),
+        pdTRUE,                         // 自动重载
+        this,                           // timer id
+        [](TimerHandle_t xTimer) {
+            auto* self = static_cast<atk_dnesp32s3_box*>(pvTimerGetTimerID(xTimer));
+            if (self) {
+                self->ScanKeys();
+            }
+        }
+    );
+    if (key_scan_timer_ != nullptr) {
+        xTimerStart(key_scan_timer_, 0);
+    }
+}
+
+AudioCodec* atk_dnesp32s3_box::GetAudioCodec() {
+    /* 根据探测结果初始化编解码器 */
+    if (es8311_detected_) {
+        /* 使用ES8311 驱动 */
+        static Es8311AudioCodec audio_codec(
+            i2c_bus_, 
+            I2C_NUM_0, 
+            AUDIO_INPUT_SAMPLE_RATE,
+            AUDIO_OUTPUT_SAMPLE_RATE,
+            GPIO_NUM_NC, 
+            AUDIO_I2S_GPIO_BCLK, 
+            AUDIO_I2S_GPIO_WS,
+            AUDIO_I2S_GPIO_DOUT,
+            AUDIO_I2S_GPIO_DIN,
+            GPIO_NUM_NC, 
+            AUDIO_CODEC_ES8311_ADDR, 
+            false);
+        return &audio_codec;
+    } else {
+        static ATK_NoAudioCodecDuplex audio_codec(
+            AUDIO_INPUT_SAMPLE_RATE,
+            AUDIO_OUTPUT_SAMPLE_RATE,
+            AUDIO_I2S_GPIO_BCLK,
+            AUDIO_I2S_GPIO_WS,
+            AUDIO_I2S_GPIO_DOUT,
+            AUDIO_I2S_GPIO_DIN);
+        return &audio_codec;
+    }
+    return NULL;
+}
+
+Display* atk_dnesp32s3_box::GetDisplay() {
+    return display_;
+}
 
 DECLARE_BOARD(atk_dnesp32s3_box);

@@ -10,6 +10,9 @@
 
 #include <atomic>
 #include <memory>
+#include <vector>
+#include <string>
+#include <utility>
 
 #define PREVIEW_IMAGE_DURATION_MS 5000
 
@@ -33,6 +36,10 @@ protected:
     esp_timer_handle_t preview_timer_ = nullptr;
     std::unique_ptr<LvglImage> preview_image_cached_ = nullptr;
 
+    // 新增：聊天历史（只保存 user/assistant）
+    std::vector<std::pair<std::string, std::string>> chat_history_;
+    int chat_history_index_ = -1;
+
     void InitializeLcdThemes();
     void SetupUI();
     virtual bool Lock(int timeout_ms = 0) override;
@@ -47,6 +54,10 @@ public:
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetChatMessage(const char* role, const char* content) override; 
     virtual void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
+
+    // 新增：翻页接口（给 K1/K2 调用）
+    void ShowPreviousChatMessage();
+    void ShowNextChatMessage();
 
     // Add theme switching function
     virtual void SetTheme(Theme* theme) override;

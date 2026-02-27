@@ -12,6 +12,8 @@
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
 #include <cstring>
+#include <string>
+#include <utility>
 
 #include "board.h"
 
@@ -909,9 +911,85 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
     if (chat_message_label_ == nullptr) {
         return;
     }
-    lv_label_set_text(chat_message_label_, content);
+
+    // 先无条件更新当前显示内容（包括 system）
+    lv_label_set_text(chat_message_label_, content ? content : "");
+
+    // 参数校验
+    if (role == nullptr || content == nullptr) {
+        return;
+    }
+
+    // 不把 system 消息加入翻页历史
+    if (std::strcmp(role, "system") == 0) {
+        return;
+    }
+
+    // 避免空消息进入历史
+    if (content[0] == '\0') {
+        return;
+    }
+
+    // 维护最多 20 条历史（只含 user/assistant）
+    constexpr std::size_t kMaxHistory = 20;
+    if (chat_history_.size() >= kMaxHistory) {
+        // 删除最早一条
+        chat_history_.erase(chat_history_.begin());
+        // 调整当前索引（如果之前已指向某条历史）
+        if (chat_history_index_ > 0) {
+            chat_history_index_ -= 1;
+        } else if (chat_history_index_ == 0) {
+            chat_history_index_ = -1;
+        }
+    }
+
+    chat_history_.emplace_back(std::string(role), std::string(content));
+    // 每次新消息来到，索引指向最新一条
+    chat_history_index_ = static_cast<int>(chat_history_.size()) - 1;
 }
 #endif
+
+void LcdDisplay::ShowPreviousChatMessage() {
+    DisplayLockGuard lock(this);
+
+    if (chat_message_label_ == nullptr || chat_history_.empty()) {
+        return;
+    }
+
+    // 如果当前不在历史范围内（例如刚显示完 system 消息），先跳到最新一条
+    if (chat_history_index_ < 0 || chat_history_index_ >= static_cast<int>(chat_history_.size())) {
+        chat_history_index_ = static_cast<int>(chat_history_.size()) - 1;
+    } else if (chat_history_index_ > 0) {
+        // 正常向前翻
+        chat_history_index_ -= 1;
+    } else {
+        // 已经是最早一条了，保持不动
+    }
+
+    const auto& msg = chat_history_[chat_history_index_];
+    lv_label_set_text(chat_message_label_, msg.second.c_str());
+}
+
+void LcdDisplay::ShowNextChatMessage() {
+    DisplayLockGuard lock(this);
+
+    if (chat_message_label_ == nullptr || chat_history_.empty()) {
+        return;
+    }
+
+    // 如果当前不在历史范围内，先跳到最新一条
+    if (chat_history_index_ < 0 || chat_history_index_ >= static_cast<int>(chat_history_.size())) {
+        chat_history_index_ = static_cast<int>(chat_history_.size()) - 1;
+    } else if (chat_history_index_ < static_cast<int>(chat_history_.size()) - 1) {
+        // 正常向后翻
+        chat_history_index_ += 1;
+    } else {
+        // 已经是最新一条了，保持不动
+    }
+
+    const auto& msg = chat_history_[chat_history_index_];
+    lv_label_set_text(chat_message_label_, msg.second.c_str());
+}
 
 void LcdDisplay::SetEmotion(const char* emotion) {
     // Stop any running GIF animation
